@@ -47,6 +47,7 @@
                 <module>announcement</module>
                 <module>archive</module>
                 <module>assignment</module>
+                <module>attendance</module>
                 <module>lti</module>
                 <module>calendar</module>
                 <module>card-game</module>
@@ -73,11 +74,11 @@
                 <module>help</module>
                 <module>hierarchy</module>
                 <module>jobscheduler</module>
-                <module>jsf</module>
                 <module>jsf2</module>
                 <module>kernel</module>
                 <module>lessonbuilder</module>
                 <module>library</module>
+                <module>libs</module>
                 <module>login</module>
                 <module>mailarchive</module>
                 <module>mailsender</module>
@@ -89,6 +90,7 @@
                 <module>plus</module>
                 <module>podcasts</module>
                 <module>polls</module>
+                <module>video-training</module>
                 <module>portal</module>
                 <module>postem</module>
                 <module>presence</module>
@@ -116,7 +118,6 @@
                 <module>userauditservice</module>
                 <module>usermembership</module>
                 <module>velocity</module>
-                <module>vuecomponents</module>
                 <module>web</module>
                 <module>webapi</module>
                 <module>webcomponents</module>
@@ -135,6 +136,7 @@
                 <module>announcement</module>
                 <module>archive</module>
                 <module>assignment</module>
+                <module>attendance</module>
                 <module>assignment2</module>
                 <module>lti</module>
                 <module>calendar</module>
@@ -162,10 +164,10 @@
                 <module>help</module>
                 <module>hierarchy</module>
                 <module>jobscheduler</module>
-                <module>jsf</module>
                 <module>kernel</module>
                 <module>lessonbuilder</module>
                 <module>library</module>
+                <module>libs</module>
                 <module>login</module>
                 <module>mailarchive</module>
                 <module>mailsender</module>
@@ -176,6 +178,7 @@
                 <module>plus</module>
                 <module>podcasts</module>
                 <module>polls</module>
+                <module>video-training</module>
                 <module>portal</module>
                 <module>postem</module>
                 <module>presence</module>
@@ -273,6 +276,7 @@
                 <module>microsoft-integration/api</module>
                 <module>pasystem/pasystem-api/api</module>
                 <module>polls/api</module>
+                <module>video-training/api</module>
                 <module>profile2/api</module>
                 <module>rubrics/api</module>
                 <module>site/term-manager/api</module>
@@ -339,10 +343,8 @@
                 <module>tags/tags-api/api</module>
                 <module>user/user-util</module>
                 <module>userauditservice/api</module>
-                <module>vuecomponents/bundle</module>
                 <module>webcomponents/bundle</module>
             </modules>
         </profile>
     </profiles>
 </project>
-

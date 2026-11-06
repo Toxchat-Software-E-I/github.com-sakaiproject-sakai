@@ -30,6 +30,7 @@ import org.sakaiproject.portal.api.PortalService;
 import org.sakaiproject.springframework.orm.hibernate.AdditionalHibernateMappings;
 import org.sakaiproject.test.SakaiTestConfiguration;
 import org.sakaiproject.time.api.UserTimeService;
+import org.sakaiproject.user.api.User;
 import org.sakaiproject.tool.api.ActiveToolManager;
 import org.sakaiproject.util.api.LocaleService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +40,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportResource;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
+import org.springframework.orm.hibernate5.HibernateTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration
 @EnableTransactionManagement
@@ -133,11 +136,43 @@ public class LessonBuilderServiceTestConfiguration extends SakaiTestConfiguratio
         return mock(LessonEntity.class);
     }
 
+    @Bean
+    public User lessonBuilderTestUser() {
+        return mock(User.class);
+    }
+
+    @Bean(name = "org.sakaiproject.lessonbuildertool.service.LessonsAccess")
+    public LessonsAccess lessonsAccess(SimplePageToolDao dao,
+            org.sakaiproject.authz.api.SecurityService securityService,
+            org.sakaiproject.site.api.SiteService siteService) {
+        LessonsAccess lessonsAccess = new LessonsAccess();
+        lessonsAccess.setDao(dao);
+        lessonsAccess.setSecurityService(securityService);
+        lessonsAccess.setSiteService(siteService);
+        return lessonsAccess;
+    }
+
     @Bean(name = "org.sakaiproject.lessonbuildertool.service.PageIndexService")
     public PageIndexService pageIndexService(SimplePageToolDao simplePageToolDao) {
         PageIndexService pageIndexService = new PageIndexService();
         pageIndexService.setSimplePageToolDao(simplePageToolDao);
         return pageIndexService;
+    }
+
+    @Bean
+    public TransactionTemplate transactionTemplate(
+            @Qualifier("org.sakaiproject.springframework.orm.hibernate.GlobalTransactionManager")
+            HibernateTransactionManager transactionManager) {
+        return new TransactionTemplate(transactionManager);
+    }
+
+    @Bean(name = "org.sakaiproject.lessonbuildertool.service.PagePromotionService")
+    public PagePromotionService pagePromotionService(
+            SimplePageToolDao simplePageToolDao,
+            org.sakaiproject.site.api.SiteService siteService,
+            PageIndexService pageIndexService,
+            TransactionTemplate transactionTemplate) {
+        return new PagePromotionService(simplePageToolDao, siteService, pageIndexService, transactionTemplate);
     }
 
     @Bean(name = "org.sakaiproject.lessonbuildertool.service.PlacementPageService")

@@ -32,6 +32,8 @@
 						if (messagesTable) {
 							new DataTable(messagesTable, {
 								"paging": false,
+								// the search box above the table filters it, see setupMessagesSearch
+								"layout": {"topEnd": null},
 								"info": false,
 								"order": [[4, "desc"]] // Sort by date column (index 4) in descending order
 							});
@@ -42,6 +44,8 @@
 						if (threadedMessagesTable) {
 							new DataTable(threadedMessagesTable, {
 								"paging": false,
+								// the search box above the table filters it, see setupMessagesSearch
+								"layout": {"topEnd": null},
 								"info": false,
 								"order": [[4, "desc"]] // Sort by date column (index 4) in descending order
 							});
@@ -172,7 +176,7 @@
 	  <mf:hierPvtMsgDataTable  styleClass="table table-hover table-striped table-bordered" cellpadding="0" cellspacing="0"  id="threaded_pvtmsgs" width="100%" 
 	  	value="#{PrivateMessagesTool.searchPvtMsgs}" 
 	  	var="rcvdItems" 
-	  	rendered="#{PrivateMessagesTool.selectView == 'threaded'}"
+	  	rendered="#{PrivateMessagesTool.threadedView}"
 	  	expanded="true"
 		columnClasses="#{PrivateMessagesTool.calculateColumnClass()}">
 		  <h:column>

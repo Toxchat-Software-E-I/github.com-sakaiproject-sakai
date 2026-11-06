@@ -340,6 +340,24 @@ public interface AssignmentService extends EntityProducer {
     public void softDeleteAssignment(Assignment assignment) throws PermissionException;
 
     /**
+     * Whether deleting this group assignment can release its locks. Student work and grading
+     * keep the locks in place; empty grading placeholders do not, unless linked to a rubric.
+     */
+    boolean canReleaseGroupLocks(Assignment assignment);
+
+    /**
+     * Whether a submission contains student work or saved grading data, including a zero score.
+     * Empty grading placeholders and inherited resubmission defaults do not count as work.
+     */
+    boolean hasSubmissionWork(AssignmentSubmission submission);
+
+    /**
+     * Restore an assignment from Trash. Empty group assignments return as drafts so that
+     * instructors can review current groups before publishing. Missing groups are removed.
+     */
+    Assignment restoreAssignment(String assignmentId) throws IdUnusedException, PermissionException;
+
+    /**
      * Softly delete this Assignment and remove all references to it.
      *
      * @param assignment - The Assignment to softly delete.
@@ -462,6 +480,15 @@ public interface AssignmentService extends EntityProducer {
      * @throws PermissionException if the current user is not allowed to read this.
      */
     public AssignmentSubmission getSubmission(String submissionId) throws IdUnusedException, PermissionException;
+
+    /**
+     * Reads a submission under its active peer-review assignment rather than general submission-read permission.
+     * The current user must be the assigned assessor or a member of the assigned assessor group,
+     * and the review must be open and not removed. Returns null for a missing submission.
+     *
+     * @throws PermissionException if the current user is not authorized for this peer review
+     */
+    AssignmentSubmission getSubmissionForPeerAssessment(String submissionId, String assessorId) throws PermissionException;
 
     /**
      * Access all the Assignemnts that are not deleted and self-drafted ones

@@ -121,6 +121,7 @@ $jumbotron-heading-font-size: $h4-font-size;
 
 //Tools
 @import "modules/tool/portal/portal";
+@import "modules/tool/portal/pasystem";
 @import "modules/tool/navigation/base";
 @import "modules/tool/navigation/skipnav";
 @import "modules/toolmenu";
@@ -173,6 +174,7 @@ $jumbotron-heading-font-size: $h4-font-size;
 @import "modules/tool/microsoft-admin/microsoft-admin";
 @import "modules/tool/microsoft-mediagallery/microsoft-mediagallery";
 @import "modules/tool/microsoft-collaborativedocuments/microsoft-collaborativedocuments";
+@import "modules/tool/video-training/video-training";
 
 @import "base/rtl";
 

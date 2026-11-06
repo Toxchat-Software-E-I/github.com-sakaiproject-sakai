@@ -34,11 +34,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import javax.faces.bean.ManagedBean;
-import javax.faces.bean.SessionScoped;
-import javax.faces.context.FacesContext;
-import javax.faces.event.ActionEvent;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.faces.bean.SessionScoped;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.event.ActionEvent;
+import jakarta.faces.bean.ManagedBean;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.ss.usermodel.Cell;
@@ -367,9 +367,8 @@ public class ExportResponsesBean extends SpringBeanAutowiringSupport implements 
 
 				while (colIter.hasNext()) {
 					Object data = colIter.next();
+					Cell cell = poiRow.createCell(colPos++);
 					if (data != null) {
-						Cell cell = poiRow.createCell(colPos++);
-
 						if (data.toString().startsWith(FORMAT)) {
 							if (data.equals(FORMAT_BOLD)) {
 								cell.setCellStyle(boldStyle);
@@ -377,7 +376,9 @@ public class ExportResponsesBean extends SpringBeanAutowiringSupport implements 
 							data = colIter.next();
 						}
 
-						writeCell(cell, data, dateFormat);
+						if (data != null) {
+							writeCell(cell, data, dateFormat);
+						}
 					}
 				}
 			}

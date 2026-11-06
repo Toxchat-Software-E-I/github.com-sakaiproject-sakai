@@ -763,10 +763,6 @@ function includeWebjarLibrary(library, options = {}) {
 			jsReferences.push('/jstree.min.js');
 			cssReferences.push('/themes/default/style.min.css');
 			break;
-		case 'multiselect-two-sides':
-			libraryVersion = "2.5.5";
-			jsReferences.push('/dist/js/multiselect.min.js');
-			break;
 		case 'fontawesome-iconpicker':
 			libraryVersion = "1.4.1";
 			jsReferences.push('/dist/js/fontawesome-iconpicker.min.js');
@@ -798,6 +794,15 @@ function includeWebjarLibrary(library, options = {}) {
 		case 'multifile':
 			libraryVersion = "2.2.2";
 			jsReferences.push('/jquery.MultiFile.min.js');
+			break;
+		case 'plyr':
+			libraryVersion = "3.7.8";
+			jsReferences.push('/dist/plyr.polyfilled.js');
+			cssReferences.push('/dist/plyr.css');
+			break;
+		case 'hls.js':
+			libraryVersion = "1.5.15";
+			jsReferences.push('/dist/hls.min.js');
 			break;
 		default:
 			if (library.endsWith(".js")) {

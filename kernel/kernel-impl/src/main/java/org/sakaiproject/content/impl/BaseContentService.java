@@ -38,6 +38,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -71,8 +72,8 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections4.CollectionUtils;
@@ -102,7 +103,6 @@ import org.sakaiproject.authz.api.RoleAlreadyDefinedException;
 import org.sakaiproject.authz.api.SecurityAdvisor;
 import org.sakaiproject.authz.api.SecurityService;
 import org.sakaiproject.component.api.ServerConfigurationService;
-import org.sakaiproject.conditions.api.ConditionService;
 import org.sakaiproject.content.api.ContentChangeHandler;
 import org.sakaiproject.content.api.ContentCollection;
 import org.sakaiproject.content.api.ContentCollectionEdit;
@@ -146,7 +146,6 @@ import org.sakaiproject.entity.api.serialize.EntityReader;
 import org.sakaiproject.entity.api.serialize.EntityReaderHandler;
 import org.sakaiproject.entity.api.serialize.EntitySerializer;
 import org.sakaiproject.entity.api.serialize.SerializableEntity;
-import org.sakaiproject.event.api.Event;
 import org.sakaiproject.event.api.EventTrackingService;
 import org.sakaiproject.event.api.NotificationEdit;
 import org.sakaiproject.event.api.NotificationService;
@@ -164,8 +163,6 @@ import org.sakaiproject.exception.ServerOverloadException;
 import org.sakaiproject.exception.TypeException;
 import org.sakaiproject.exception.ZipFileNumberException;
 import org.sakaiproject.id.api.IdManager;
-import org.sakaiproject.memory.api.CacheRefresher;
-import org.sakaiproject.memory.api.MemoryService;
 import org.sakaiproject.site.api.Group;
 import org.sakaiproject.site.api.Site;
 import org.sakaiproject.site.api.SiteService;
@@ -191,6 +188,7 @@ import org.sakaiproject.util.StringUtil;
 import org.sakaiproject.util.Validator;
 import org.sakaiproject.util.Web;
 import org.sakaiproject.util.Xml;
+import org.sakaiproject.util.Zip;
 import org.sakaiproject.util.api.LinkMigrationHelper;
 import org.sakaiproject.util.MergeConfig;
 
@@ -216,7 +214,7 @@ import lombok.extern.slf4j.Slf4j;
  * </p>
  */
 @Slf4j
-public abstract class BaseContentService implements ContentHostingService, CacheRefresher, ContextObserver, EntityTransferrer, ContentExistsAware,
+public abstract class BaseContentService implements ContentHostingService, ContextObserver, EntityTransferrer, ContentExistsAware,
 SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 {
 	protected static final long END_OF_TIME = 8000L * 365L * 24L * 60L * 60L * 1000L;
@@ -311,9 +309,6 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 	/**********************************************************************************************************************************************************************************************************************************************************
 	 * Constructors, Dependencies and their setter methods
 	 *********************************************************************************************************************************************************************************************************************************************************/
-
-	@Autowired
-	protected MemoryService memoryService;
 
  	@Autowired
  	protected SessionManager sessionManager;
@@ -7272,6 +7267,20 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 	public String merge(String siteId, Element root, String archivePath, String mergeId, Map attachmentNames, Map userIdTrans,
 			Set userListAllowImport)
 	{
+        return mergeContent(siteId, root, archivePath, mergeId, attachmentNames, userIdTrans, userListAllowImport, null);
+    }
+
+    /** Uses the importer's trusted cartridge root without widening ordinary archive containment. */
+    @Override
+    public String merge(String siteId, Element root, String archivePath, String mergeId, MergeConfig mcx) {
+        return mergeContent(siteId, root, archivePath, mergeId, mcx.attachmentNames, mcx.userIdTrans,
+                mcx.userListAllowImport, mcx.archiveRoot);
+    }
+
+    /** Imports resource bodies relative to the archive XML within the operation's trusted root. */
+    private String mergeContent(String siteId, Element root, String archivePath, String mergeId,
+            Map attachmentNames, Map userIdTrans, Set userListAllowImport, Path archiveRoot) {
+
 		// get the system name: FROM_WT, FROM_CT, FROM_SAKAI
 		String source = "";
 		// root: <service> node
@@ -7442,13 +7451,15 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 						if (bodyLocation != null)
 						{
 							// the file name is relative to the archive file
-							String bodyPath = StringUtil.fullReference(archivePath, bodyLocation);
-
-							// get a stream from the file
-							FileInputStream in = new FileInputStream(bodyPath);
-
-							// resource: add if missing
-							r = mergeResource(element, in);
+							Path archiveDirectory = Path.of(archivePath).toAbsolutePath().getParent();
+							Path bodyFile = archiveRoot == null
+									? Zip.resolveContainedPath(archiveDirectory, bodyLocation)
+									: Zip.resolveContainedPath(archiveRoot, archiveDirectory, bodyLocation);
+							try (InputStream in = new FileInputStream(bodyFile.toFile()))
+							{
+								// resource: add if missing
+								r = mergeResource(element, in);
+							}
 						}
 
 						else
@@ -10401,10 +10412,6 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 			return m_accessUpdated;
 		}
 
-		private boolean isConditionallyReleased(ContentEntity entity) {
-			return StringUtils.equalsIgnoreCase("true", entity.getProperties().getProperty(ConditionService.PROP_CONDITIONAL_RELEASE));
-		}
-
 		public boolean isAvailable() 
 		{
 			boolean available = !this.isHidden();
@@ -10418,7 +10425,7 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 
 			while (available && currentEntity != null) {
 			
-				if(available && (currentEntity.getReleaseDate() != null || currentEntity.getRetractDate() != null || isConditionallyReleased(currentEntity)))
+				if(available && (currentEntity.getReleaseDate() != null || currentEntity.getRetractDate() != null))
 				{
 					Time now = timeService.newTime();
 					if (currentEntity.getReleaseDate() != null) {
@@ -10426,21 +10433,6 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 					}
 					if (available && currentEntity.getRetractDate() != null) {
 						available = currentEntity.getRetractDate().after(now);
-					}
-					if (available && isConditionallyReleased(currentEntity)) {
-						// first check for global rule satisfaction
-						String satisfiesRule = currentEntity.getProperties().getProperty("resource.satisfies.rule");
-						if (satisfiesRule == null) {
-							Collection<?> acl = (Collection<?>) currentEntity.getProperties().get("conditional_access_list");
-							if (acl == null) {
-								available = false;
-							} else {
-								// acl acts as a white list for availability
-								available = acl.contains(sessionManager.getCurrentSessionUserId());
-							}
-						} else {
-							available = Boolean.parseBoolean(satisfiesRule);
-						}
 					}
 				}
 				if (!available) {
@@ -10637,36 +10629,6 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 		public void setResourceType(String type)
 		{
 			m_resourceType = type;
-		}
-
-		public boolean isConditionallyReleased() {
-			try {
-				return this.m_properties.getBooleanProperty(ConditionService.PROP_CONDITIONAL_RELEASE);
-			} catch (EntityPropertyNotDefinedException e) {
-				return false;
-			} catch (EntityPropertyTypeException e) {
-				return false;
-			}
-		}
-
-		public void setConditionallyReleased(boolean isConditionallyReleased) {
-			try {
-				Boolean oldValue = this.m_properties.getBooleanProperty(ConditionService.PROP_CONDITIONAL_RELEASE);
-				if(oldValue.booleanValue() != isConditionallyReleased) {
-					this.m_visibilityUpdated = true;
-				}
-			} catch (EntityPropertyNotDefinedException e) {
-				// oldValue is false
-				if(isConditionallyReleased) {
-					this.m_visibilityUpdated = true;
-				}
-			} catch (EntityPropertyTypeException e) {
-				// assume oldValue is false
-				if(isConditionallyReleased) {
-					this.m_visibilityUpdated = true;
-				}
-			}
-			m_properties.addProperty(ConditionService.PROP_CONDITIONAL_RELEASE, Boolean.toString(isConditionallyReleased));
 		}
 
 	}	// BasicGroupAwareEntity
@@ -13113,54 +13075,6 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 		
 	} // Storage
 
-	/**********************************************************************************************************************************************************************************************************************************************************
-	 * CacheRefresher implementation (no container)
-	 *********************************************************************************************************************************************************************************************************************************************************/
-
-	/**
-	 * Get a new value for this key whose value has already expired in the cache.
-	 * 
-	 * @param key
-	 *        The key whose value has expired and needs to be refreshed.
-	 * @param oldValue
-	 *        The old exipred value of the key.
-	 * @param event
-	 *        The event which triggered this refresh.
-	 * @return a new value for use in the cache for this key; if null, the entry will be removed.
-	 */
-	public Object refresh(Object key, Object oldValue, Event event)
-	{
-		Object rv = null;
-
-		// key is a reference
-		Reference ref = entityManager.newReference((String) key);
-		String id = ref.getId();
-
-		log.debug("refresh(): key {} id : {}", key, ref.getId());
-
-		// get from storage only (not cache!)
-		boolean collectionHint = id.endsWith(Entity.SEPARATOR);
-		if (collectionHint)
-		{
-			rv = m_storage.getCollection(id);
-		}
-		else
-		{
-			try
-			{
-				rv = m_storage.getResource(id);
-			}
-			catch (TypeException e)
-			{
-				log.error("Type Exception",e);
-			}
-		}
-
-		return rv;
-
-	} // refresh
-
-
 	/* Content Hosting Handlers are not implemented in the Base Content Service */
 	public boolean isContentHostingHandlersEnabled()
 	{
@@ -13602,17 +13516,20 @@ SiteContentAdvisorProvider, SiteContentAdvisorTypeRegistry, HardDeleteAware
 
             // Get a context
             ContentResourceEdit resource = editResource(resourceId);
-            // Set the updated length for quota checking
-            resource.setContentLength(totalSize);
-            log.debug("Resource is: [{}] Size is [{}]", resourceId, totalSize);
-            // check for over quota.
-            if (overQuota(resource)) {
-                log.error("Zip file for resource ("+resourceId+") would be too large after unzip so it cannot be expanded, totalSize("+totalSize+") exceeds the resource quota");
-                throw new OverQuotaException(resource.getReference());
+            try {
+                // Set the updated length for quota checking
+                resource.setContentLength(totalSize);
+                log.debug("Resource is: [{}] Size is [{}]", resourceId, totalSize);
+                // check for over quota.
+                if (overQuota(resource)) {
+                    log.error("Zip file for resource ("+resourceId+") would be too large after unzip so it cannot be expanded, totalSize("+totalSize+") exceeds the resource quota");
+                    throw new OverQuotaException(resource.getReference());
+                }
+                // zip files are not too large to extract so do the extract
+                extractZipArchive.extractArchive(resourceId);
+            } finally {
+                cancelResource(resource);
             }
-            // zip files are not too large to extract so do the extract
-            extractZipArchive.extractArchive(resourceId);
-            cancelResource(resource); //commitResource(resource); // KNL-1220
         }
     }
     

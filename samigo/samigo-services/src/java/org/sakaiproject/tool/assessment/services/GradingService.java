@@ -60,10 +60,18 @@ import org.apache.commons.math3.exception.MathParseException;
 import org.apache.commons.math3.util.Precision;
 import org.jsoup.Jsoup;
 import org.mariuszgromada.math.mxparser.parsertokens.ParserSymbol;
+import org.sakaiproject.component.cover.ComponentManager;
+import org.sakaiproject.component.api.ServerConfigurationService;
+import org.sakaiproject.authz.api.SecurityService;
+import org.sakaiproject.entity.api.ResourceProperties;
+import org.sakaiproject.exception.IdUnusedException;
+import org.sakaiproject.site.api.SiteService;
+import org.sakaiproject.tool.api.SessionManager;
 import org.sakaiproject.event.cover.EventTrackingService;
+import org.sakaiproject.rubrics.api.RubricsConstants;
+import org.sakaiproject.rubrics.api.RubricsService;
 import org.sakaiproject.samigo.util.SamigoConstants;
 import org.sakaiproject.section.api.coursemanagement.EnrollmentRecord;
-import org.sakaiproject.spring.SpringBeanLocator;
 import org.sakaiproject.tool.assessment.data.dao.assessment.EventLogData;
 import org.sakaiproject.tool.assessment.data.dao.assessment.PublishedItemData;
 import org.sakaiproject.tool.assessment.data.dao.assessment.PublishedItemFeedback;
@@ -92,12 +100,11 @@ import org.sakaiproject.tool.assessment.facade.GradebookFacade;
 import org.sakaiproject.tool.assessment.facade.PublishedAssessmentFacade;
 import org.sakaiproject.tool.assessment.facade.TypeFacade;
 import org.sakaiproject.tool.assessment.facade.TypeFacadeQueriesAPI;
-import org.sakaiproject.tool.assessment.integration.context.IntegrationContextFactory;
 import org.sakaiproject.tool.assessment.integration.helper.ifc.GradebookServiceHelper;
+import org.sakaiproject.tool.assessment.integration.helper.ifc.SectionAwareServiceHelper;
 import org.sakaiproject.tool.assessment.services.assessment.EventLogService;
 import org.sakaiproject.tool.assessment.services.assessment.PublishedAssessmentService;
-import org.sakaiproject.tool.assessment.shared.api.grading.GradingSectionAwareServiceAPI;
-import org.sakaiproject.tool.assessment.shared.impl.grading.GradingSectionAwareServiceImpl;
+import org.sakaiproject.tool.assessment.util.GradebookAssociationHelper;
 import org.sakaiproject.tool.assessment.util.ExtendedTimeDeliveryService;
 import org.sakaiproject.tool.assessment.util.ImageMapCoordinates;
 import org.sakaiproject.tool.assessment.util.SamigoExpressionError;
@@ -1686,16 +1693,10 @@ public class GradingService
     // If the assessment is published to the gradebook, make sure to update the scores in the gradebook
     String toGradebook = pub.getEvaluationModel().getToGradeBook();
 
-    org.sakaiproject.grading.api.GradingService gradingService = null;
-    boolean integrated = IntegrationContextFactory.getInstance().isIntegrated();
-    if (integrated)
-    {
-      gradingService = (org.sakaiproject.grading.api.GradingService) SpringBeanLocator.getInstance().
-        getBean("org.sakaiproject.grading.api.GradingService");
-    }
+    org.sakaiproject.grading.api.GradingService gradingService = ComponentManager.get(org.sakaiproject.grading.api.GradingService.class);
 
     GradebookServiceHelper gbsHelper =
-      IntegrationContextFactory.getInstance().getGradebookServiceHelper();
+      (GradebookServiceHelper) ComponentManager.get("gradebookServiceHelper");
 
     PublishedAssessmentService publishedAssessmentService = new PublishedAssessmentService();
     String currentSiteId = publishedAssessmentService.getPublishedAssessmentSiteId(pub.getPublishedAssessmentId().toString());
@@ -1712,30 +1713,61 @@ public class GradingService
     		if (EvaluationModelIfc.TO_DEFAULT_GRADEBOOK.toString().equals(toGradebook))
     			gbsHelper.updateExternalAssessmentScore(data, gradingService);
     		else if (EvaluationModelIfc.TO_SELECTED_GRADEBOOK.toString().equals(toGradebook)) {
-          if (gbsHelper.isGradebookGroupEnabled(gradingService)) {
-            String gradebookItemString = pub.getAssessmentToGradebookNameMetaData();
+          String gradebookItemString = pub.getAssessmentToGradebookNameMetaData();
+          List<String> gradebookItemList = GradebookAssociationHelper.parseItemIds(gradebookItemString);
+          if (gradebookItemList.isEmpty()) {
+            log.warn("Skipping gradebook sync for publishedAssessmentId {}: TO_SELECTED with blank/missing TO_GRADEBOOK_ID",
+                pub.getPublishedAssessmentId());
+            retryCount = 0;
+            break;
+          }
 
-            if (gradebookItemString != null && !StringUtils.isBlank(gradebookItemString)) {
-              List<String> gradebookItemList = Arrays.asList(gradebookItemString.split(","));
+          // Use assessment site id — AgentFacade has no site in Quartz/autosubmit
+          boolean isGradebookGroupEnabled = gradingService != null
+              && StringUtils.isNotBlank(currentSiteId)
+              && gradingService.isGradebookGroupEnabled(currentSiteId);
 
+          if (isGradebookGroupEnabled) {
               for (String gradebookItem : gradebookItemList) {
-                gbsHelper.updateExternalAssessmentScore(data, gradingService, Long.parseLong(gradebookItem));
+                try {
+                  gbsHelper.updateExternalAssessmentScore(data, gradingService, Long.parseLong(gradebookItem));
+                } catch (NumberFormatException nfe) {
+                  log.warn("Skipping non-numeric gradebook item id '{}' for publishedAssessmentId {}",
+                      gradebookItem, pub.getPublishedAssessmentId());
+                } catch (org.sakaiproject.grading.api.AssessmentNotFoundException ante) {
+                  log.warn("Skipping missing gradebook item id '{}' for publishedAssessmentId {}: {}",
+                      gradebookItem, pub.getPublishedAssessmentId(), ante.getMessage());
+                }
               }
-            }
           } else {
-            Long gradebookItemId = Long.valueOf(pub.getAssessmentToGradebookNameMetaData());
-            gbsHelper.updateExternalAssessmentScore(data, gradingService, gradebookItemId);
+            try {
+              Long gradebookItemId = Long.valueOf(gradebookItemList.get(0));
+              gbsHelper.updateExternalAssessmentScore(data, gradingService, gradebookItemId);
+            } catch (NumberFormatException nfe) {
+              log.warn("Skipping gradebook sync for publishedAssessmentId {}: non-numeric TO_GRADEBOOK_ID '{}'",
+                  pub.getPublishedAssessmentId(), gradebookItemString);
+              retryCount = 0;
+              break;
+            } catch (org.sakaiproject.grading.api.AssessmentNotFoundException ante) {
+              log.warn("Skipping gradebook sync for publishedAssessmentId {}: missing item '{}': {}",
+                  pub.getPublishedAssessmentId(), gradebookItemString, ante.getMessage());
+              retryCount = 0;
+              break;
+            }
           }
     		}
     		retryCount = 0;
     	}
       catch (org.sakaiproject.grading.api.AssessmentNotFoundException ante) {
     	  log.warn("problem sending grades to gradebook: {}", ante.getMessage());
-          if (AssessmentIfc.RETRACT_FOR_EDIT_STATUS.equals(pub.getStatus())) {
+          if (EvaluationModelIfc.TO_SELECTED_GRADEBOOK.toString().equals(toGradebook)) {
+            log.warn("Gradebook item missing for TO_SELECTED publishedAssessmentId {}; skipping sync", pub.getPublishedAssessmentId());
+            retryCount = 0;
+          } else if (AssessmentIfc.RETRACT_FOR_EDIT_STATUS.equals(pub.getStatus())) {
         	  retryCount = retry(retryCount, ante, pub, true);
           }
           else {
-        	  // Otherwise, do the same exeption handling as others
+        	  // Otherwise, do the same exception handling as others
         	  retryCount = retry(retryCount, ante, pub, false);
           }
       }
@@ -2635,7 +2667,7 @@ Here are the definition and 12 cases I came up with (lydia, 01/2006):
       return;
     }
 
-    GradingSectionAwareServiceAPI service = new GradingSectionAwareServiceImpl();
+    SectionAwareServiceHelper service = (SectionAwareServiceHelper) ComponentManager.get("sectionAwareServiceHelper");
     String userId = AgentFacade.getAgentString();
     List<EnrollmentRecord> siteEnrollments = service.getAllGroupsReleaseEnrollments(siteId, userId, null);
     for (PublishedAssessmentFacade assessment : assessments) {
@@ -2826,11 +2858,55 @@ Here are the definition and 12 cases I came up with (lydia, 01/2006):
   }
   
   public void removeAssessmentGradingData(AssessmentGradingData data) {
-	  try {
-		  PersistenceService.getInstance().getAssessmentGradingFacadeQueries().removeAssessmentGradingData(data);
-	  } catch (Exception e) {
-		  log.error("Exception thrown from removeAssessmentGradingData", e);
-	  }
+      try {
+          PersistenceService persistenceService = PersistenceService.getInstance();
+          AssessmentGradingData submission = persistenceService.getAssessmentGradingFacadeQueries().load(data.getAssessmentGradingId(), false);
+          String siteId = AgentFacade.getCurrentSiteId();
+          checkSubmissionRemovalAllowed(submission, siteId);
+          Set<String> evaluatedItemIds = submission.getItemGradingSet().stream()
+                  .map(item -> submission.getAssessmentGradingId() + "." + item.getPublishedItemId())
+                  .collect(Collectors.toSet());
+          ComponentManager.get(RubricsService.class).deleteEvaluationsForToolAndEvaluatedItems(
+                  RubricsConstants.RBCS_TOOL_SAMIGO, evaluatedItemIds, siteId);
+          // Keep the submission available for retry if rubric cleanup fails.
+          persistenceService.getAssessmentGradingFacadeQueries().removeAssessmentGradingData(submission);
+      } catch (RuntimeException e) {
+          log.warn("Could not remove assessment submission {} and its rubric evaluations", data.getAssessmentGradingId(), e);
+          throw e;
+      }
+  }
+
+  private void checkSubmissionRemovalAllowed(AssessmentGradingData submission, String siteId) {
+      String userId = ComponentManager.get(SessionManager.class).getCurrentSessionUserId();
+      PersistenceService persistenceService = PersistenceService.getInstance();
+      if (StringUtils.isBlank(userId) || StringUtils.isBlank(siteId) || submission == null
+              || !siteId.equals(persistenceService.getPublishedAssessmentFacadeQueries()
+                      .getPublishedAssessmentOwner(submission.getPublishedAssessmentId().toString()))) {
+          throw new SecurityException("You must be authorized to remove the assessment submission in this site");
+      }
+      SecurityService securityService = ComponentManager.get(SecurityService.class);
+      SiteService siteService = ComponentManager.get(SiteService.class);
+      String siteRef = siteService.siteReference(siteId);
+      boolean canGrade = securityService.unlock(SamigoConstants.AUTHZ_GRADE_ASSESSMENT_ANY, siteRef)
+              || (securityService.unlock(SamigoConstants.AUTHZ_GRADE_ASSESSMENT_OWN, siteRef)
+                  && userId.equals(persistenceService.getPublishedAssessmentFacadeQueries()
+                          .loadPublishedAssessment(submission.getPublishedAssessmentId()).getCreatedBy()));
+      if (!canGrade) {
+          throw new SecurityException("You must be authorized to grade the assessment");
+      }
+      try {
+          String restrictionKey = "samigo.removeSubmission.restricted";
+          ResourceProperties properties = siteService.getSite(siteId).getProperties();
+          String siteRestriction = properties == null ? "" : StringUtils.trimToEmpty(properties.getProperty(restrictionKey));
+          boolean restricted = siteRestriction.isEmpty()
+                  ? ComponentManager.get(ServerConfigurationService.class).getBoolean(restrictionKey, false)
+                  : Boolean.parseBoolean(siteRestriction);
+          if (restricted && !securityService.unlock("site.upd", siteService.siteReference("!admin"))) {
+              throw new SecurityException("Assessment submission removal is restricted to administrators");
+          }
+      } catch (IdUnusedException e) {
+          throw new IllegalArgumentException("No site for assessment submission " + submission.getAssessmentGradingId(), e);
+      }
   }
 
   public boolean getHasGradingData(Long publishedAssessmentId) {

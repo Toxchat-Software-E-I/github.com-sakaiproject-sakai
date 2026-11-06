@@ -81,9 +81,10 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import org.sakaiproject.util.Zip;
 
-import javax.servlet.ServletConfig;
-import javax.servlet.ServletException;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletException;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.FilenameUtils;
@@ -3183,22 +3184,22 @@ public class AssignmentAction extends PagedResourceActionII {
                 rangeAndGroups.buildInstructorNewEditAssignmentContextGroupCheck(context, a);
 
                 // controls to disable which groups can be changed
-                Collection<Group> groupsWithUserSubmission = new ArrayList<>();
+                Collection<Group> groupsWithSubmissionWork = new ArrayList<>();
                 if (a.getIsGroup()) {
                     try {
                         Site site = siteService.getSite(a.getContext());
                         Collection<Group> siteGroups = site.getGroups();
 
                         a.getSubmissions().stream()
-                                .filter(AssignmentSubmission::getUserSubmission)
+                                .filter(assignmentService::hasSubmissionWork)
                                 .forEach(s -> siteGroups.stream()
                                         .filter(g -> g.getId().equals(s.getGroupId()))
-                                        .findAny().ifPresent(groupsWithUserSubmission::add));
+                                        .findAny().ifPresent(groupsWithSubmissionWork::add));
                     } catch (IdUnusedException e) {
                         log.warn("Site not found for context {}, {}", a.getContext(), e.getMessage());
                     }
                 }
-                context.put("groupsWithUserSubmission", groupsWithUserSubmission);
+                context.put("groupsWithSubmissionWork", groupsWithSubmissionWork);
             }
         } else {
             boolean instructorGroupsProp = serverConfigurationService.getBoolean("assignments.assign.to.instructor.groups", false);
@@ -4114,6 +4115,7 @@ public class AssignmentAction extends PagedResourceActionII {
         context.put("confirmMessage", assignments.size() > 1 ? rb.getString(multipleConfirmMessage) : rb.getString(singleConfirmMessage));
         context.put("currentTime", Instant.now());
         context.put("submissionCountTable", submissionCountTable);
+        context.put("showGroupLockConsequences", operation == BulkOperation.DELETE);
 
         String template = getContext(data).get("template");
         return template + TEMPLATE_INSTRUCTOR_BULK_OPERATION;
@@ -7271,9 +7273,12 @@ public class AssignmentAction extends PagedResourceActionII {
             }
             if ((state.getAttribute(STATE_MESSAGE) == null) && (a != null)) {
                 AssignmentSubmission submission;
-                if (contentReviewService != null && Boolean.valueOf(eulaAgreementYes)) {
-                		//update EULA agreement timestamp
-                		contentReviewService.updateUserEULATimestamp(sessionManager.getCurrentSessionUserId());
+                if (contentReviewService != null && Boolean.valueOf(eulaAgreementYes)
+                        && StringUtils.isNotEmpty(contentReviewService.getEndUserLicenseAgreementLink(
+                                sessionManager.getCurrentSessionUserId()))
+                        && !contentReviewService.updateUserEULATimestamp(sessionManager.getCurrentSessionUserId())) {
+                    addAlert(state, rb.getString("saved.error"));
+                    return;
                 }
 
                 if (a.getIsGroup()) {
@@ -8056,14 +8061,6 @@ public class AssignmentAction extends PagedResourceActionII {
                                 }
                             }
 
-                            List<Gradebook> gbList = gradingService.getGradebookGroupInstances(siteId);
-                            List<String> existingGradebookUids = gbList.stream().map(Gradebook::getUid).collect(Collectors.toList());
-
-                            for (String gbUid : existingGradebookUids) {
-                                gradingService.buildGradebookPointsMap(gbUid, siteId, assignmentRef, gradebookPointsMap, newCategoryString);
-                            }
-                        } else {
-                            gradingService.buildGradebookPointsMap(siteId, siteId, assignmentRef, gradebookPointsMap, catInt.toString());
                         }
                         break;
                     case GRADEBOOK_INTEGRATION_ASSOCIATE:
@@ -8133,6 +8130,15 @@ public class AssignmentAction extends PagedResourceActionII {
                         break;
                     default:
                         break;
+                }
+                // Published assignments use "associate" and retain their Gradebook category.
+                String selectedCategories = GRADEBOOK_INTEGRATION_ADD.equals(grading)
+                        ? (isGradebookGroupEnabled ? newCategoryString : catInt.toString()) : "-1";
+                List<String> gradebookUids = isGradebookGroupEnabled
+                        ? gradingService.getGradebookGroupInstances(siteId).stream().map(Gradebook::getUid).collect(Collectors.toList())
+                        : List.of(siteId);
+                for (String gradebookUid : gradebookUids) {
+                    gradingService.buildGradebookPointsMap(gradebookUid, siteId, assignmentRef, gradebookPointsMap, selectedCategories);
                 }
             }
         }
@@ -9959,7 +9965,7 @@ public class AssignmentAction extends PagedResourceActionII {
                     }).filter(Objects::nonNull).collect(Collectors.toList());
 
                     submissionsToRemove.stream()
-                            .filter(s -> !s.getUserSubmission())
+                            .filter(s -> a.getIsGroup() ? !assignmentService.hasSubmissionWork(s) : !s.getUserSubmission())
                             .forEach(s -> {
                                 try {
                                     assignmentService.removeSubmission(s);
@@ -11099,20 +11105,19 @@ public class AssignmentAction extends PagedResourceActionII {
                     a = assignmentService.getAssignment(id);
 
                     if (a != null) {
-                        a.setDeleted(false);
-                        assignmentService.updateAssignment(a);
+                        a = assignmentService.restoreAssignment(id);
 
                         rubricsService.restoreRubricAssociation(AssignmentConstants.TOOL_ID, id);
 
                         // restore email reminder only if reminder is set and the due date is after 1 day
-                        if (BooleanUtils.toBoolean(a.getProperties().get(NEW_ASSIGNMENT_REMINDER_EMAIL))
+                        if (!a.getDraft() && BooleanUtils.toBoolean(a.getProperties().get(NEW_ASSIGNMENT_REMINDER_EMAIL))
                                 && a.getDueDate() != null
                                 && Instant.now().plus(1, ChronoUnit.DAYS).isBefore(a.getDueDate())) {
                             assignmentDueReminderService.scheduleDueDateReminder(a.getId());
                         }
 
                         // Restore gradebook item only if assignment was previously associated
-                        if (StringUtils.equals(a.getProperties().get(NEW_ASSIGNMENT_ADD_TO_GRADEBOOK), GRADEBOOK_INTEGRATION_ASSOCIATE)) {
+                        if (!a.getDraft() && StringUtils.equals(a.getProperties().get(NEW_ASSIGNMENT_ADD_TO_GRADEBOOK), GRADEBOOK_INTEGRATION_ASSOCIATE)) {
                             String siteId = (String) state.getAttribute(STATE_CONTEXT_STRING);
                             Site site = siteService.getSite(siteId);
 
@@ -14528,7 +14533,11 @@ public class AssignmentAction extends PagedResourceActionII {
             Files.copy(fileContentStream, destination, StandardCopyOption.REPLACE_EXISTING);
             final Charset tempFileCharset = getZipFileCharset(tempFile);
 
-            ZipFile zipFile = new ZipFile(tempFile, tempFileCharset);
+            try (ZipFile zipFile = new ZipFile(tempFile, tempFileCharset)) {
+            Enumeration<? extends ZipEntry> validationEntries = zipFile.entries();
+            while (validationEntries.hasMoreElements()) {
+                Zip.validateEntryName(validationEntries.nextElement().getName());
+            }
             Enumeration<? extends ZipEntry> zipEntries = zipFile.entries();
             ZipEntry entry;
             // SAK-17606
@@ -14536,7 +14545,7 @@ public class AssignmentAction extends PagedResourceActionII {
             boolean isAnon = assignmentService.assignmentUsesAnonymousGrading(assignment);
             while (zipEntries.hasMoreElements() && validZipFormat) {
                 entry = zipEntries.nextElement();
-                String entryName = entry.getName();
+                String entryName = Zip.validateEntryName(entry.getName());
                 if (!entry.isDirectory() && !entryName.contains("/.")) {
                     if (entryName.endsWith("grades.csv") || entryName.endsWith("grades.xls")) {
                         if (hasGradeFile && entryName.endsWith("grades.csv") && "csv".equals(gradeFileFormat)) {
@@ -14775,6 +14784,7 @@ public class AssignmentAction extends PagedResourceActionII {
                         }
                     }
                 }
+            }
             }
         } catch (IOException e) {
             // uploaded file is not a valid archive

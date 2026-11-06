@@ -273,6 +273,11 @@ public class PublishedAssessmentFacade
     this((PublishedAssessmentIfc) data);
   }
 
+  public void setData(PublishedAssessmentIfc data) {
+    setProperties(data);
+    this.publishedSectionSet = data.getSectionSet();
+  }
+
   private void setProperties(PublishedAssessmentIfc data){
     this.data = data;
     this.publishedAssessmentId = data.getPublishedAssessmentId();
@@ -868,6 +873,11 @@ public class PublishedAssessmentFacade
 	  this.hasAssessmentGradingData = hasAssessmentGradingData;
   }
   
+  public void setReleaseToGroups(Map<String, String> releaseToGroups) {
+      this.releaseToGroups = releaseToGroups;
+      setGroupCount();
+  }
+
   public void setGroupCount() {
       if (releaseToGroups != null) {
           groupCount = releaseToGroups.size();

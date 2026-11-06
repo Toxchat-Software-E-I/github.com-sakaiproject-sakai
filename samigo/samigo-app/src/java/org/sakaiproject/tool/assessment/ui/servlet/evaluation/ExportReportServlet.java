@@ -24,10 +24,10 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import javax.servlet.ServletException;
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -118,6 +118,11 @@ public class ExportReportServlet extends SamigoBaseServlet {
         // Check if assessment was found
         if (assessment == null) {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "No published assessment with id [" + assessmentId + "] found");
+            return;
+        }
+
+        if (!StringUtils.equals(siteId, assessment.getOwnerSiteId())) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
 
@@ -229,14 +234,14 @@ public class ExportReportServlet extends SamigoBaseServlet {
         histogramScoresBean.setAllSubmissions(scope);
 
         // Prepare totalScoresBean
-        TotalScoresBean totalScoresBean = (TotalScoresBean) ContextUtil.lookupBeanFromExternalServlet("totalScores", request, response);
+        TotalScoresBean totalScoresBean = (TotalScoresBean) ContextUtil.lookupBeanFromExternalServlet("totalScores", request, response, getServletContext());
         totalScoresBean.setAllSubmissions(scope);
         totalScoresBean.setReleaseToAnonymous(false);
         totalScoresBean.setPublishedId(assessmentId);
         totalScoresBean.setPublishedAssessment(assessment);
 
         // Prepare questionScoresBean
-        QuestionScoresBean questionScoresBean = (QuestionScoresBean) ContextUtil.lookupBeanFromExternalServlet("questionScores", request, response);
+        QuestionScoresBean questionScoresBean = (QuestionScoresBean) ContextUtil.lookupBeanFromExternalServlet("questionScores", request, response, getServletContext());
         questionScoresBean.setAllSubmissions(scope);
 
         // Process listener logic

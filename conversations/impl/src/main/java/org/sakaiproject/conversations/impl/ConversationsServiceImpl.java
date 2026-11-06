@@ -86,6 +86,7 @@ import org.sakaiproject.conversations.api.repository.PostReactionTotalRepository
 import org.sakaiproject.conversations.api.repository.PostStatusRepository;
 import org.sakaiproject.conversations.api.repository.SettingsRepository;
 import org.sakaiproject.tags.api.Tag;
+import org.sakaiproject.tags.api.TagSummary;
 import org.sakaiproject.tags.api.TagService;
 import org.sakaiproject.conversations.api.repository.TopicReactionRepository;
 import org.sakaiproject.conversations.api.repository.TopicReactionTotalRepository;
@@ -104,8 +105,8 @@ import org.sakaiproject.grading.api.GradeDefinition;
 import org.sakaiproject.grading.api.GradingSecurityException;
 import org.sakaiproject.grading.api.GradingService;
 import org.sakaiproject.lti.api.LTIService;
-import org.sakaiproject.memory.api.Cache;
-import org.sakaiproject.memory.api.MemoryService;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.sakaiproject.messaging.api.Message;
 import org.sakaiproject.messaging.api.MessageMedium;
 import org.sakaiproject.messaging.api.UserMessagingService;
@@ -138,7 +139,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import lombok.Setter;
 
-import javax.persistence.PersistenceException;
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.persistence.PersistenceException;
 
 @Slf4j
 @Setter
@@ -161,7 +163,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
     private FormattedText formattedText;
 
-    private MemoryService memoryService;
+    private CacheManager cacheManager;
 
     private ConversationsPostRepository postRepository;
 
@@ -211,19 +213,18 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
     private LTIService ltiService;
 
-    private Cache<String, List<ConversationsStat>> sortedStatsCache;
-    private Cache<String, Map<String, Map<String, Object>>> postsCache;
+    private Cache sortedStatsCache;
+    private Cache postsCache;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public void init() {
 
         Permissions.stream().forEach(p -> functionManager.registerFunction(p.label, true));
-        this.sortedStatsCache = memoryService.<String, List<ConversationsStat>>getCache(STATS_CACHE_NAME);
-        this.postsCache = memoryService.<String, Map<String, Map<String, Object>>>getCache(POSTS_CACHE_NAME);
+        this.sortedStatsCache = cacheManager.getCache(STATS_CACHE_NAME);
+        this.postsCache = cacheManager.getCache(POSTS_CACHE_NAME);
         eventTrackingService.addObserver(this);
 
-        entityManager.registerEntityProducer(this, REFERENCE_ROOT);
 
         userMessagingService.importTemplateFromResourceXmlFile("emailtemplates/new_question.xml", TOOL_ID + ".newquestion");
         userMessagingService.importTemplateFromResourceXmlFile("emailtemplates/new_discussion.xml", TOOL_ID + ".newdiscussion");
@@ -239,24 +240,24 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             String event = e.getEvent();
             if (event.equals(AuthzGroupService.SECURE_UPDATE_AUTHZ_GROUP)) {
                 String baseCacheKey = e.getContext() + "/conversations/";
-                this.sortedStatsCache.remove(baseCacheKey + SORT_NAME_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_NAME_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPICS_CREATED_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPICS_CREATED_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPICS_VIEWED_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPICS_VIEWED_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPIC_REACTIONS_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPIC_REACTIONS_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPIC_UPVOTES_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_TOPIC_UPVOTES_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POSTS_CREATED_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POSTS_CREATED_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POSTS_READ_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POSTS_READ_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POST_REACTIONS_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POST_REACTIONS_DESCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POST_UPVOTES_ASCENDING);
-                this.sortedStatsCache.remove(baseCacheKey + SORT_POST_UPVOTES_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_NAME_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_NAME_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPICS_CREATED_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPICS_CREATED_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPICS_VIEWED_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPICS_VIEWED_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPIC_REACTIONS_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPIC_REACTIONS_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPIC_UPVOTES_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_TOPIC_UPVOTES_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POSTS_CREATED_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POSTS_CREATED_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POSTS_READ_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POSTS_READ_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POST_REACTIONS_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POST_REACTIONS_DESCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POST_UPVOTES_ASCENDING);
+                this.sortedStatsCache.evict(baseCacheKey + SORT_POST_UPVOTES_DESCENDING);
             }
         }
     }
@@ -309,7 +310,10 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         final String siteRef = siteService.siteReference(topic.getSiteId());
 
         if (!securityService.unlock(SiteService.SITE_VISIT, siteRef)) return false;
+        return canViewTopicContent(topic, currentUserId, siteRef);
+    }
 
+    private boolean canViewTopicContent(ConversationsTopic topic, String currentUserId, String siteRef) {
         if (!topic.getDraft() && securityService.isSuperUser()) return true;
 
         Instant now = Instant.now();
@@ -328,7 +332,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             return true;
         }
 
-        if (topic.getVisibility() == TopicVisibility.GROUP) {
+        if (!topic.getDraft() && topic.getVisibility() == TopicVisibility.GROUP) {
             if (securityService.unlock(Permissions.VIEW_GROUP_TOPICS.label, siteRef)) return true;
 
             ArrayList<String> groups = new ArrayList<>(topic.getGroups());
@@ -418,7 +422,16 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
     @Transactional
     public TopicTransferBean saveTopic(final TopicTransferBean topicBean, boolean sendMessage) throws ConversationsPermissionsException {
 
-        String currentUserId = StringUtils.isNotBlank(topicBean.creator) ? topicBean.creator : getCheckedCurrentUserId();
+        String currentUserId = getCheckedCurrentUserId();
+        ConversationsTopic storedTopic = StringUtils.isBlank(topicBean.id) ? null : topicRepository.findById(topicBean.id)
+            .orElseThrow(() -> new IllegalArgumentException("No topic for id " + topicBean.id));
+        if (storedTopic != null) {
+            if (!Objects.equals(storedTopic.getSiteId(), topicBean.siteId)) {
+                throw new ConversationsPermissionsException("Topic does not belong to this site");
+            }
+            topicBean.creator = storedTopic.getMetadata().getCreator();
+            topicBean.created = storedTopic.getMetadata().getCreated();
+        }
 
         String siteRef = siteService.siteReference(topicBean.siteId);
 
@@ -431,7 +444,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         }
 
         boolean isNew = StringUtils.isBlank(topicBean.id);
-        boolean isMine = !isNew && topicBean.creator.equals(currentUserId);
+        boolean isMine = storedTopic != null && Objects.equals(storedTopic.getMetadata().getCreator(), currentUserId);
 
         if (isNew) {
             if (!securityService.unlock(Permissions.QUESTION_CREATE.label, siteRef)
@@ -439,7 +452,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                 throw new ConversationsPermissionsException("Current user cannot create topic.");
             }
         } else if (!securityService.unlock(Permissions.TOPIC_UPDATE_ANY.label, siteRef)
-                && (isMine && !securityService.unlock(Permissions.TOPIC_UPDATE_OWN.label, siteRef))) {
+                && (!isMine || !securityService.unlock(Permissions.TOPIC_UPDATE_OWN.label, siteRef))) {
             throw new ConversationsPermissionsException("Current user cannot update topic.");
         }
 
@@ -520,7 +533,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             // but seems the safest way of catching changes like due and availability dates. Maybe
             // we will need to be more precise about when we need to do this, like when the due date
             // has been updated, or whatever.
-            postsCache.remove(topicBean.id);
+            postsCache.evict(topicBean.id);
         }
 
         topicBean.setModifier(currentUserId);
@@ -534,7 +547,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         List<String> tagIds = topicBean.tags.stream().map(TagTransferBean::getId).collect(Collectors.toList());
         for (String tagId : tagIds) {
-            requireSiteTag(topicBean.siteId, tagId);
+            checkTagAccess(topicBean.siteId, tagId);
         }
         List<String> previousTagIds = isNew ? Collections.emptyList()
             : tagService.getTagAssociationIds(topicBean.siteId, topicBean.id);
@@ -780,7 +793,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         Settings settings = getSettingsForSite(topic.getSiteId());
         topic = topicRepository.save(topic);
         TopicTransferBean bean = decorateTopicBean(toTopicTransferBean(topic), topic, currentUserId, settings);
-        postsCache.remove(topicId);
+        postsCache.evict(topicId);
         return bean;
     }
 
@@ -811,8 +824,12 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         String currentUserId = getCheckedCurrentUserId();
 
-        ConversationsTopic topic = topicRepository.getReferenceById(topicId);
+        ConversationsTopic topic = topicRepository.findById(topicId)
+            .orElseThrow(() -> new EntityNotFoundException("No topic for id " + topicId));
 
+        if (!currentUserCanViewTopic(topic)) {
+            throw new ConversationsPermissionsException("Current user cannot view topic");
+        }
         TopicStatus topicStatus = topicStatusRepository.findByTopicIdAndUserId(topicId, currentUserId)
             .orElseGet(() -> new TopicStatus(topic, currentUserId));
         topicStatus.setBookmarked(bookmarked);
@@ -830,7 +847,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         boolean isMine = topic.getMetadata().getCreator().equals(currentUserId);
         if (!securityService.unlock(Permissions.TOPIC_DELETE_ANY.label, siteRef)
-            && (isMine && !securityService.unlock(Permissions.TOPIC_DELETE_OWN.label, siteRef))) {
+            && (!isMine || !securityService.unlock(Permissions.TOPIC_DELETE_OWN.label, siteRef))) {
             throw new ConversationsPermissionsException("Current user is not allowed to delete topic.");
         }
 
@@ -877,6 +894,9 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         ConversationsTopic topic = topicRepository.findById(topicId)
             .orElseThrow(() -> new IllegalArgumentException("No topic for id " + topicId));
 
+        if (!currentUserCanViewTopic(topic) || !securityService.unlock(Permissions.POST_REACT.label, siteService.siteReference(topic.getSiteId()))) {
+            throw new ConversationsPermissionsException("Current user cannot view topic");
+        }
         if (topic.getMetadata().getCreator().equals(currentUserId)) {
             throw new ConversationsPermissionsException("You can't react to your own topics");
         }
@@ -947,6 +967,12 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         ConversationsTopic topic = topicRepository.findById(topicId)
             .orElseThrow(() -> new IllegalArgumentException("No topic for id " + topicId));
 
+        if (!Objects.equals(topic.getSiteId(), siteId)) {
+            throw new ConversationsPermissionsException("Topic does not belong to this site");
+        }
+        if (!currentUserCanViewTopic(topic)) {
+            throw new ConversationsPermissionsException("Current user cannot view this topic");
+        }
         if (topic.getMetadata().getCreator().equals(currentUserId)) {
             throw new IllegalArgumentException("Users cannot upvote their own topics");
         }
@@ -987,6 +1013,12 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         ConversationsTopic topic = topicRepository.findById(topicId)
             .orElseThrow(() -> new IllegalArgumentException("No topic for id " + topicId));
 
+        if (!Objects.equals(topic.getSiteId(), siteId)) {
+            throw new ConversationsPermissionsException("Topic does not belong to this site");
+        }
+        if (!currentUserCanViewTopic(topic)) {
+            throw new ConversationsPermissionsException("Current user cannot view this topic");
+        }
         if (topic.getMetadata().getCreator().equals(currentUserId)) {
             throw new IllegalArgumentException("Users cannot unupvote their own topics");
         }
@@ -1016,6 +1048,16 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
     public PostTransferBean savePost(PostTransferBean postBean, boolean sendMessage) throws ConversationsPermissionsException {
 
         String currentUserId = getCheckedCurrentUserId();
+        ConversationsPost storedPost = StringUtils.isBlank(postBean.id) ? null : postRepository.findById(postBean.id)
+            .orElseThrow(() -> new IllegalArgumentException("No post for id " + postBean.id));
+        if (storedPost != null) {
+            if (!Objects.equals(storedPost.getSiteId(), postBean.siteId)
+                    || !Objects.equals(storedPost.getTopic().getId(), postBean.topic)) {
+                throw new ConversationsPermissionsException("Post does not belong to this site and topic");
+            }
+            postBean.creator = storedPost.getMetadata().getCreator();
+            postBean.created = storedPost.getMetadata().getCreated();
+        }
 
         String siteRef = siteService.siteReference(postBean.siteId);
 
@@ -1026,25 +1068,36 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         }
 
         boolean isNew = StringUtils.isBlank(postBean.id);
-        boolean isMine = !isNew && postBean.creator.equals(currentUserId);
+        boolean isMine = storedPost != null && Objects.equals(storedPost.getMetadata().getCreator(), currentUserId);
 
         if (isNew) {
             if (!securityService.unlock(Permissions.POST_CREATE.label, siteRef)) {
                 throw new ConversationsPermissionsException("Current user cannot create posts.");
             }
         } else if (!securityService.unlock(Permissions.POST_UPDATE_ANY.label, siteRef)
-                && (isMine && !securityService.unlock(Permissions.POST_UPDATE_OWN.label, siteRef))) {
+                && (!isMine || !securityService.unlock(Permissions.POST_UPDATE_OWN.label, siteRef))) {
             throw new ConversationsPermissionsException("Current user cannot update posts.");
         }
 
         final ConversationsTopic topic = topicRepository.findById(postBean.topic)
             .orElseThrow(() -> new IllegalArgumentException("No topic for id " + postBean.topic));
 
+        if (!Objects.equals(topic.getSiteId(), postBean.siteId) || !canViewTopicContent(topic, currentUserId, siteRef)) {
+            throw new ConversationsPermissionsException("Topic does not belong to this site or is not visible");
+        }
+        if (StringUtils.isNotBlank(postBean.parentThread)) {
+            ConversationsPost thread = postRepository.findById(postBean.parentThread)
+                .orElseThrow(() -> new IllegalArgumentException("No thread for id " + postBean.parentThread));
+            if (!Objects.equals(thread.getTopic().getId(), topic.getId())) {
+                throw new ConversationsPermissionsException("Parent thread does not belong to this topic");
+            }
+        }
         boolean wasDraft = false;
 
         // We're creating a new topic, so set the initial dates of creation and modification
         Instant now = Instant.now();
         if (isNew) {
+            postBean.setId(null);
             postBean.setCreator(currentUserId);
             postBean.setCreated(now);
         } else {
@@ -1065,6 +1118,9 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             parent = postRepository.findById(postBean.parentPost);
 
             if (parent.isPresent()) {
+                if (!Objects.equals(parent.get().getTopic().getId(), topic.getId())) {
+                    throw new ConversationsPermissionsException("Parent post does not belong to this topic");
+                }
                 post.setDepth(parent.get().getDepth() + 1);
             } else {
                 throw new IllegalArgumentException("No post for id " + postBean.parentPost);
@@ -1077,7 +1133,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         post.setLocked(topic.getLocked());
         post = postRepository.save(post);
 
-        postsCache.remove(postBean.topic);
+        postsCache.evict(postBean.topic);
 
         if (StringUtils.isNotBlank(postBean.parentThread) && !postBean.draft) {
             postRepository.findById(postBean.parentThread).ifPresent(thread -> {
@@ -1178,7 +1234,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         String currentUserId = sessionManager.getCurrentSessionUserId();
         if (StringUtils.isBlank(currentUserId)) return false;
 
-        return canUserViewPost(post, currentUserId);
+        return currentUserCanViewTopic(post.getTopic()) && canUserViewPost(post, currentUserId);
     }
 
     public boolean currentUserCanViewComment(ConversationsComment comment) {
@@ -1190,7 +1246,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         ConversationsPost post = postRepository.findById(comment.getPost().getId())
             .orElseThrow(() -> new IllegalArgumentException("No post for id " + comment.getPost().getId()));
-        return canUserViewPost(post, currentUserId);
+        return currentUserCanViewTopic(post.getTopic()) && canUserViewPost(post, currentUserId);
     }
 
     private ConversationsTopic lockIfAfterLockDate(ConversationsTopic topic) {
@@ -1263,6 +1319,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         if (!post.getDraft() && securityService.isSuperUser()) return true;
 
         if (post.getMetadata().getCreator().equals(currentUserId)) return true;
+        if (post.getDraft()) return false;
 
         if (post.getPrivatePost()) {
             String parentPostId = post.getParentPostId();
@@ -1309,6 +1366,10 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         ConversationsTopic topic = topicRepository.findById(topicId).orElseThrow(() -> new IllegalArgumentException("No topic for id " + topicId));
 
+        if (!Objects.equals(siteId, topic.getSiteId()) || !currentUserCanViewTopic(topic)) {
+            throw new ConversationsPermissionsException("Current user cannot view this topic");
+        }
+
         if (topic.getMustPostBeforeViewing() && !securityService.unlock(Permissions.ROLETYPE_INSTRUCTOR.label, siteService.siteReference(siteId))) {
             ConversationsPermissionsException cpe
                 = new ConversationsPermissionsException("Current user cannot view posts. They need to post something first.");
@@ -1320,10 +1381,9 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         List<PostTransferBean> fullList = null;
         PostSort previousSort = null;
-        Map<String, Map<String, Object>> topicCache = postsCache.get(topicId);
+        Map<String, Map<String, Object>> topicCache = postsCache.get(topicId, Map.class);
         if (topicCache == null) {
             topicCache = new HashMap<>();
-            postsCache.put(topicId, topicCache);
         } else {
             Map<String, Object> userMap = topicCache.get(currentUserId);
             fullList = userMap != null ? (List<PostTransferBean>) userMap.get("posts") : null;
@@ -1445,8 +1505,11 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             }
             Map<String, Object> userMap = new HashMap<>();
             userMap.put("posts", fullList);
-            userMap.put("sort", pSort); 
+            userMap.put("sort", pSort);
             topicCache.put(currentUserId, userMap);
+            // topicCache is a nested value inside postsCache; Ignite deserializes a fresh copy on
+            // get(), so the mutation above only reaches the actual cache if we put it back here.
+            postsCache.put(topicId, topicCache);
         }
 
         int pageSize = serverConfigurationService.getInt(ConversationsService.PROP_THREADS_PAGE_SIZE, 10);
@@ -1479,6 +1542,10 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         ConversationsPost post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("No post for id " + postId));
+        if (!Objects.equals(post.getSiteId(), siteId) || !Objects.equals(post.getTopic().getId(), topicId)) {
+            throw new ConversationsPermissionsException("Post does not belong to this site and topic");
+        }
+
 
         String siteRef = siteService.siteReference(siteId);
 
@@ -1514,7 +1581,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             });
         }
 
-        postsCache.remove(topicId);
+        postsCache.evict(topicId);
 
         this.afterCommit(() -> {
             String reference = ConversationsReferenceReckoner.reckoner().siteId(siteId).type("p").id(postId).reckon().getReference();
@@ -1531,6 +1598,10 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         ConversationsPost post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("No post for id " + postId));
+        if (!Objects.equals(post.getSiteId(), siteId) || !Objects.equals(post.getTopic().getId(), topicId)) {
+            throw new ConversationsPermissionsException("Post does not belong to this site and topic");
+        }
+
 
         if (!securityService.unlock(Permissions.MODERATE.label, siteService.siteReference(siteId))) {
             throw new ConversationsPermissionsException("Current user cannot lock/unlock posts.");
@@ -1541,7 +1612,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         Settings settings = getSettingsForSite(siteId);
         PostTransferBean postBean = decoratePostBean(PostTransferBean.of(postRepository.save(post)), siteId, topic, currentUserId, settings, null, null);
         addDecoratedChildren(postBean, siteId, topic, currentUserId, settings);
-        postsCache.remove(topicId);
+        postsCache.evict(topicId);
         return postBean;
     }
 
@@ -1568,12 +1639,16 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         ConversationsPost post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("No post for id " + postId));
+        if (!Objects.equals(post.getSiteId(), siteId) || !Objects.equals(post.getTopic().getId(), topicId)) {
+            throw new ConversationsPermissionsException("Post does not belong to this site and topic");
+        }
+
 
         post.setHidden(hidden);
         Settings settings = getSettingsForSite(siteId);
         String currentUserId = getCheckedCurrentUserId();
         PostTransferBean bean = decoratePostBean(PostTransferBean.of(postRepository.save(post)), siteId, topic, currentUserId, settings, null, null);
-        postsCache.remove(topicId);
+        postsCache.evict(topicId);
         return bean;
     }
 
@@ -1584,6 +1659,10 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         ConversationsPost post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("No post for id " + postId));
 
+        if (!Objects.equals(post.getTopic().getId(), topicId) || !currentUserCanViewPost(post)
+                || !securityService.unlock(Permissions.POST_REACT.label, siteService.siteReference(post.getSiteId()))) {
+            throw new ConversationsPermissionsException("Current user cannot view post in this topic");
+        }
         if (post.getMetadata().getCreator().equals(currentUserId)) {
             throw new ConversationsPermissionsException("You can't react to your own posts");
         }
@@ -1647,7 +1726,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         });
 
         // Do we need to uncache posts if it's just a reaction?
-        postsCache.remove(topicId);
+        postsCache.evict(topicId);
 
         Map<Reaction, Integer> reactionTotals = postReactionTotalRepository.findByPostId(postId)
                 .stream().collect(Collectors.toMap(rt -> rt.getReaction(), rt -> rt.getTotal()));
@@ -1660,12 +1739,19 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
     }
 
     public void markPostsViewed(Set<String> postIds, String topicId) throws ConversationsPermissionsException {
-
         String currentUserId = getCheckedCurrentUserId();
-        postRepository.findAllById(postIds).forEach(post -> this.markPostViewed(topicId, post, currentUserId));
-
         ConversationsTopic topic = topicRepository.findById(topicId)
             .orElseThrow(() -> new IllegalArgumentException("No topic for id " + topicId));
+        if (!currentUserCanViewTopic(topic)) {
+            throw new ConversationsPermissionsException("Current user cannot view topic");
+        }
+        Iterable<ConversationsPost> posts = postRepository.findAllById(postIds);
+        for (ConversationsPost post : posts) {
+            if (!Objects.equals(post.getTopic().getId(), topicId) || !currentUserCanViewPost(post)) {
+                throw new ConversationsPermissionsException("Post does not belong to this visible topic");
+            }
+        }
+        posts.forEach(post -> this.markPostViewed(topicId, post, currentUserId));
 
         long numberOfPosts = getNumberOfPostsInTopic(topic, currentUserId);
         long read = postStatusRepository
@@ -1682,8 +1768,12 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     + "due to the way the client detects posts scrolling into view", pe);
         }
 
-        Map<String, Map<String, Object>> topicCache = postsCache.get(topicId);
-        if (topicCache != null) topicCache.remove(currentUserId);
+        Map<String, Map<String, Object>> topicCache = postsCache.get(topicId, Map.class);
+        if (topicCache != null) {
+            topicCache.remove(currentUserId);
+            // write the mutated map back; see the note in getPostsByTopicId for why this is required.
+            postsCache.put(topicId, topicCache);
+        }
     }
 
     private void markPostViewed(String topicId, ConversationsPost post, String currentUserId) {
@@ -1718,21 +1808,38 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
     public CommentTransferBean saveComment(CommentTransferBean commentBean) throws ConversationsPermissionsException {
 
         String currentUserId = getCheckedCurrentUserId();
+        ConversationsComment storedComment = StringUtils.isBlank(commentBean.id) ? null : commentRepository.findById(commentBean.id)
+            .orElseThrow(() -> new IllegalArgumentException("No comment for id " + commentBean.id));
+        ConversationsPost parentPost = postRepository.findById(commentBean.postId)
+            .orElseThrow(() -> new IllegalArgumentException("No post for id " + commentBean.postId));
+        if (!Objects.equals(parentPost.getSiteId(), commentBean.siteId)
+                || !Objects.equals(parentPost.getTopic().getId(), commentBean.topicId)
+                || (storedComment != null && (!Objects.equals(storedComment.getPost().getId(), parentPost.getId())
+                    || !Objects.equals(storedComment.getSiteId(), commentBean.siteId)))) {
+            throw new ConversationsPermissionsException("Comment does not belong to this site, topic and post");
+        }
+        if (storedComment != null) {
+            commentBean.creator = storedComment.getMetadata().getCreator();
+            commentBean.created = storedComment.getMetadata().getCreated();
+        }
 
         String siteRef = "/site/" + commentBean.siteId;
 
         boolean isNew = StringUtils.isBlank(commentBean.id);
-        boolean isMine = !isNew && commentBean.creator.equals(currentUserId);
+        boolean isMine = storedComment != null && Objects.equals(storedComment.getMetadata().getCreator(), currentUserId);
 
         if (isNew) {
             if (!securityService.unlock(Permissions.COMMENT_CREATE.label, siteRef)) {
                 throw new ConversationsPermissionsException("Current user cannot create comments.");
             }
         } else if (!securityService.unlock(Permissions.COMMENT_UPDATE_ANY.label, siteRef)
-                && (isMine && !securityService.unlock(Permissions.COMMENT_UPDATE_OWN.label, siteRef))) {
+                && (!isMine || !securityService.unlock(Permissions.COMMENT_UPDATE_OWN.label, siteRef))) {
             throw new ConversationsPermissionsException("Current user cannot update comments.");
         }
 
+        if (!canViewTopicContent(parentPost.getTopic(), currentUserId, siteRef) || !canUserViewPost(parentPost, currentUserId)) {
+            throw new ConversationsPermissionsException("Current user cannot view this topic");
+        }
         // We're creating a new topic, so set the initial dates of creation and modification
         Instant now = Instant.now();
         if (isNew) {
@@ -1760,7 +1867,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         this.afterCommit(() -> {
 
-            postsCache.remove(commentBean.topicId);
+            postsCache.evict(commentBean.topicId);
 
             ConversationsEvent event = isNew ? ConversationsEvent.COMMENT_CREATED : ConversationsEvent.COMMENT_UPDATED;
             String reference = ConversationsReferenceReckoner.reckoner()
@@ -1780,11 +1887,14 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         ConversationsComment comment = commentRepository.findById(commentId)
             .orElseThrow(() -> new IllegalArgumentException("No comment with id " + commentId));
 
+        if (!Objects.equals(comment.getSiteId(), siteId)) {
+            throw new ConversationsPermissionsException("Comment does not belong to this site");
+        }
         String siteRef = siteService.siteReference(siteId);
 
         boolean isMine = comment.getMetadata().getCreator().equals(currentUserId);
         if (!securityService.unlock(Permissions.COMMENT_DELETE_ANY.label, siteRef)
-            && (isMine && !securityService.unlock(Permissions.COMMENT_DELETE_OWN.label, siteRef))) {
+            && (!isMine || !securityService.unlock(Permissions.COMMENT_DELETE_OWN.label, siteRef))) {
             throw new ConversationsPermissionsException("Current user cannot delete comment");
         }
         commentRepository.deleteById(commentId);
@@ -1899,7 +2009,9 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             }
         }
 
-        topicBean.url = "/api/sites/" + topicBean.siteId + "/topics/" + topicBean.id;
+        // New topics POST to the collection URL; Spring 6 does not match a trailing slash.
+        topicBean.url = "/api/sites/" + topicBean.siteId + "/topics"
+            + (StringUtils.isBlank(topicBean.id) ? "" : "/" + topicBean.id);
         getTopicPortalUrl(topicBean.id).ifPresent(portalUrl -> topicBean.portalUrl = portalUrl);
         topicBean.reference = ConversationsReferenceReckoner.reckoner().siteId(topicBean.siteId).type("t").id(topicBean.id).reckon().getReference();
 
@@ -1915,6 +2027,8 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             if (!p.getDraft() && securityService.isSuperUser()) return true;
 
             if (p.getMetadata().getCreator().equals(currentUserId)) return true;
+
+            if (p.getDraft()) return false;
 
             if (p.getPrivatePost()) {
                 String parentPostId = p.getParentPostId();
@@ -2059,6 +2173,12 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         ConversationsPost post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("No post for id " + postId));
+        if (!Objects.equals(post.getSiteId(), siteId) || !Objects.equals(post.getTopic().getId(), topicId)) {
+            throw new ConversationsPermissionsException("Post does not belong to this site and topic");
+        }
+        if (post.getHidden() || !currentUserCanViewPost(post)) {
+            throw new ConversationsPermissionsException("Current user cannot vote on this post");
+        }
 
         if (post.getMetadata().getCreator().equals(currentUserId)) {
             throw new IllegalArgumentException("Users cannot upvote their own posts");
@@ -2100,17 +2220,23 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             updatePostHowActiveScore(post);
         }
 
-        postsCache.remove(topicId);
+        postsCache.evict(topicId);
 
         return PostTransferBean.of(postRepository.save(post));
     }
 
-    public PostTransferBean unUpvotePost(String siteId, String postId) throws ConversationsPermissionsException {
+    public PostTransferBean unUpvotePost(String siteId, String topicId, String postId) throws ConversationsPermissionsException {
 
         String currentUserId = getCheckedCurrentUserId();
 
         ConversationsPost post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("No post for id " + postId));
+        if (!Objects.equals(post.getSiteId(), siteId) || !Objects.equals(post.getTopic().getId(), topicId)) {
+            throw new ConversationsPermissionsException("Post does not belong to this site and topic");
+        }
+        if (post.getHidden() || !currentUserCanViewPost(post)) {
+            throw new ConversationsPermissionsException("Current user cannot vote on this post");
+        }
 
         if (post.getMetadata().getCreator().equals(currentUserId)) {
             throw new IllegalArgumentException("Users cannot unupvote their own posts");
@@ -2143,23 +2269,31 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
             updatePostHowActiveScore(post);
         }
 
-        postsCache.remove(post.getTopic().getId());
+        postsCache.evict(post.getTopic().getId());
 
         return PostTransferBean.of(postRepository.save(post));
     }
 
-    private Tag requireSiteTag(String siteId, String tagId) {
-        return tagService.getTag(tagId)
-            .filter(tag -> siteId.equals(tag.getTagCollectionId()))
-            .orElseThrow(() -> new IllegalArgumentException("No tag in site " + siteId + " with id " + tagId));
+    private void checkTagAccess(String siteId, String tagId) {
+        Tag tag = tagService.getTag(tagId)
+            .orElseThrow(() -> new IllegalArgumentException("No tag with id " + tagId));
+        tagService.checkCollectionAccess(siteId, tag.getTagCollectionId());
     }
 
     private TagTransferBean toConversationTag(Tag sharedTag) {
+        return toConversationTag(sharedTag.getTagId(), sharedTag.getTagCollectionId(), sharedTag.getTagLabel(), sharedTag.getDescription());
+    }
+
+    private TagTransferBean toConversationTag(TagSummary sharedTag) {
+        return toConversationTag(sharedTag.getTagId(), sharedTag.getTagCollectionId(), sharedTag.getTagLabel(), sharedTag.getDescription());
+    }
+
+    private TagTransferBean toConversationTag(String id, String collectionId, String label, String description) {
         TagTransferBean tag = new TagTransferBean();
-        tag.setId(sharedTag.getTagId());
-        tag.setSiteId(sharedTag.getTagCollectionId());
-        tag.setLabel(sharedTag.getTagLabel());
-        tag.setDescription(sharedTag.getDescription());
+        tag.setId(id);
+        tag.setSiteId(collectionId);
+        tag.setLabel(label);
+        tag.setDescription(description);
         return tag;
     }
 
@@ -2175,7 +2309,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         if (!securityService.unlock(Permissions.TOPIC_TAG.label, siteService.siteReference(siteId))) {
             return Collections.emptyList();
         }
-        return tagService.getTagsInCollection(siteId).stream()
+        return tagService.getTagsForSite(siteId).stream()
             .map(this::toConversationTag)
             .sorted(Comparator.comparing(TagTransferBean::getLabel, new AlphaNumericComparator()))
             .collect(Collectors.toList());
@@ -2247,7 +2381,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         Settings newSettings = settingsRepository.save(settings);
 
-        topicRepository.findBySiteId(settings.getSiteId()).forEach(t -> postsCache.remove(t.getId()));
+        topicRepository.findBySiteId(settings.getSiteId()).forEach(t -> postsCache.evict(t.getId()));
 
         return newSettings;
     }
@@ -2373,7 +2507,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
 
         List<ConversationsStat> sortedStats = new ArrayList<>();
         if (sort == null) {
-            sortedStats = sortedStatsCache.get(nameAscendingKey);
+            sortedStats = sortedStatsCache.get(nameAscendingKey, List.class);
             if (sortedStats == null) {
                 sortedStats = stats.stream().sorted(Comparator.comparing(s -> s.name)).collect(Collectors.toList());
                 sortedStatsCache.put(nameAscendingKey, sortedStats);
@@ -2381,7 +2515,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
         } else {
             switch (sort) {
                 case SORT_NAME_ASCENDING:
-                    sortedStats = sortedStatsCache.get(nameAscendingKey);
+                    sortedStats = sortedStatsCache.get(nameAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getName)).collect(Collectors.toList());
                         sortedStatsCache.put(nameAscendingKey, sortedStats);
@@ -2389,7 +2523,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_NAME_DESCENDING:
                     String nameDescendingKey = baseCacheKey + SORT_NAME_DESCENDING;
-                    sortedStats = sortedStatsCache.get(nameDescendingKey);
+                    sortedStats = sortedStatsCache.get(nameDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getName).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(nameDescendingKey, sortedStats);
@@ -2397,7 +2531,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPICS_CREATED_ASCENDING:
                     String topicsCreatedAscendingKey = baseCacheKey + SORT_TOPICS_CREATED_ASCENDING;
-                    sortedStats = sortedStatsCache.get(topicsCreatedAscendingKey);
+                    sortedStats = sortedStatsCache.get(topicsCreatedAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicsCreated)).collect(Collectors.toList());
                         sortedStatsCache.put(topicsCreatedAscendingKey, sortedStats);
@@ -2405,7 +2539,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPICS_CREATED_DESCENDING:
                     String topicsCreatedDescendingKey = baseCacheKey + SORT_TOPICS_CREATED_DESCENDING;
-                    sortedStats = sortedStatsCache.get(topicsCreatedDescendingKey);
+                    sortedStats = sortedStatsCache.get(topicsCreatedDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicsCreated).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(topicsCreatedDescendingKey, sortedStats);
@@ -2413,7 +2547,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPICS_VIEWED_ASCENDING:
                     String topicsViewedAscendingKey = baseCacheKey + SORT_TOPICS_VIEWED_ASCENDING;
-                    sortedStats = sortedStatsCache.get(topicsViewedAscendingKey);
+                    sortedStats = sortedStatsCache.get(topicsViewedAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicsViewed)).collect(Collectors.toList());
                         sortedStatsCache.put(topicsViewedAscendingKey, sortedStats);
@@ -2421,7 +2555,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPICS_VIEWED_DESCENDING:
                     String topicsViewedDescendingKey = baseCacheKey + SORT_TOPICS_VIEWED_DESCENDING;
-                    sortedStats = sortedStatsCache.get(topicsViewedDescendingKey);
+                    sortedStats = sortedStatsCache.get(topicsViewedDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicsViewed).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(topicsViewedDescendingKey, sortedStats);
@@ -2429,7 +2563,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPIC_REACTIONS_ASCENDING:
                     String topicReactionsAscendingKey = baseCacheKey + SORT_TOPIC_REACTIONS_ASCENDING;
-                    sortedStats = sortedStatsCache.get(topicReactionsAscendingKey);
+                    sortedStats = sortedStatsCache.get(topicReactionsAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicReactions)).collect(Collectors.toList());
                         sortedStatsCache.put(topicReactionsAscendingKey, sortedStats);
@@ -2437,7 +2571,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPIC_REACTIONS_DESCENDING:
                     String topicReactionsDescendingKey = baseCacheKey + SORT_TOPIC_REACTIONS_DESCENDING;
-                    sortedStats = sortedStatsCache.get(topicReactionsDescendingKey);
+                    sortedStats = sortedStatsCache.get(topicReactionsDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicReactions).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(topicReactionsDescendingKey, sortedStats);
@@ -2445,7 +2579,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPIC_UPVOTES_ASCENDING:
                     String topicUpvotesAscendingKey = baseCacheKey + SORT_TOPIC_UPVOTES_ASCENDING;
-                    sortedStats = sortedStatsCache.get(topicUpvotesAscendingKey);
+                    sortedStats = sortedStatsCache.get(topicUpvotesAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicUpvotes)).collect(Collectors.toList());
                         sortedStatsCache.put(topicUpvotesAscendingKey, sortedStats);
@@ -2453,7 +2587,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_TOPIC_UPVOTES_DESCENDING:
                     String topicUpvotesDescendingKey = baseCacheKey + SORT_TOPIC_UPVOTES_DESCENDING;
-                    sortedStats = sortedStatsCache.get(topicUpvotesDescendingKey);
+                    sortedStats = sortedStatsCache.get(topicUpvotesDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getTopicUpvotes).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(topicUpvotesDescendingKey, sortedStats);
@@ -2461,7 +2595,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POSTS_CREATED_ASCENDING:
                     String postsCreatedAscendingKey = baseCacheKey + SORT_POSTS_CREATED_ASCENDING;
-                    sortedStats = sortedStatsCache.get(postsCreatedAscendingKey);
+                    sortedStats = sortedStatsCache.get(postsCreatedAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostsCreated)).collect(Collectors.toList());
                         sortedStatsCache.put(postsCreatedAscendingKey, sortedStats);
@@ -2469,7 +2603,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POSTS_CREATED_DESCENDING:
                     String postsCreatedDescendingKey = baseCacheKey + SORT_POSTS_CREATED_DESCENDING;
-                    sortedStats = sortedStatsCache.get(postsCreatedDescendingKey);
+                    sortedStats = sortedStatsCache.get(postsCreatedDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostsCreated).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(postsCreatedDescendingKey, sortedStats);
@@ -2477,7 +2611,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POSTS_READ_ASCENDING:
                     String postsReadAscendingKey = baseCacheKey + SORT_POSTS_READ_ASCENDING;
-                    sortedStats = sortedStatsCache.get(postsReadAscendingKey);
+                    sortedStats = sortedStatsCache.get(postsReadAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostsViewed)).collect(Collectors.toList());
                         sortedStatsCache.put(postsReadAscendingKey, sortedStats);
@@ -2485,7 +2619,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POSTS_READ_DESCENDING:
                     String postsReadDescendingKey = baseCacheKey + SORT_POSTS_READ_DESCENDING;
-                    sortedStats = sortedStatsCache.get(postsReadDescendingKey);
+                    sortedStats = sortedStatsCache.get(postsReadDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostsViewed).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(postsReadDescendingKey, sortedStats);
@@ -2493,7 +2627,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POST_REACTIONS_ASCENDING:
                     String postReactionsAscendingKey = baseCacheKey + SORT_POST_REACTIONS_ASCENDING;
-                    sortedStats = sortedStatsCache.get(postReactionsAscendingKey);
+                    sortedStats = sortedStatsCache.get(postReactionsAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostReactions)).collect(Collectors.toList());
                         sortedStatsCache.put(postReactionsAscendingKey, sortedStats);
@@ -2501,7 +2635,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POST_REACTIONS_DESCENDING:
                     String postReactionsDescendingKey = baseCacheKey + SORT_POST_REACTIONS_DESCENDING;
-                    sortedStats = sortedStatsCache.get(postReactionsDescendingKey);
+                    sortedStats = sortedStatsCache.get(postReactionsDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostReactions).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(postReactionsDescendingKey, sortedStats);
@@ -2509,7 +2643,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POST_UPVOTES_ASCENDING:
                     String postUpvotesAscendingKey = baseCacheKey + SORT_POST_UPVOTES_ASCENDING;
-                    sortedStats = sortedStatsCache.get(postUpvotesAscendingKey);
+                    sortedStats = sortedStatsCache.get(postUpvotesAscendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostUpvotes)).collect(Collectors.toList());
                         sortedStatsCache.put(postUpvotesAscendingKey, sortedStats);
@@ -2517,7 +2651,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
                     break;
                 case SORT_POST_UPVOTES_DESCENDING:
                     String postUpvotesDescendingKey = baseCacheKey + SORT_POST_UPVOTES_DESCENDING;
-                    sortedStats = sortedStatsCache.get(postUpvotesDescendingKey);
+                    sortedStats = sortedStatsCache.get(postUpvotesDescendingKey, List.class);
                     if (sortedStats == null) {
                         sortedStats = stats.stream().sorted(Comparator.comparing(ConversationsStat::getPostUpvotes).reversed()).collect(Collectors.toList());
                         sortedStatsCache.put(postUpvotesDescendingKey, sortedStats);
@@ -2552,7 +2686,7 @@ public class ConversationsServiceImpl implements ConversationsService, EntityTra
     public void clearCacheForGradedTopic(Long gradingItemId) {
 
         topicRepository.findTopicsByGradingItemId(gradingItemId)
-            .forEach(t -> postsCache.remove(t.getId()));
+            .forEach(t -> postsCache.evict(t.getId()));
     }
 
     private void afterCommit(Runnable runnable) {

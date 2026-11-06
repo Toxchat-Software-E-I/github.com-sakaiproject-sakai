@@ -20,6 +20,7 @@ import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertTha
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.AriaRole;
+import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.SelectOption;
 import java.net.URI;
 import java.util.List;
@@ -41,7 +42,7 @@ class ViewSiteAsTest extends SakaiUiTestBase {
             usernameInput.fill("admin");
             page.locator("input[name=\"pw\"], #pw").first().fill("admin");
             page.locator("#submit, button[type=\"submit\"], input[type=\"submit\"]").first().click();
-            page.waitForLoadState();
+            page.waitForLoadState(LoadState.DOMCONTENTLOADED);
         }
 
         URI portalUri = URI.create(page.url());
@@ -49,16 +50,18 @@ class ViewSiteAsTest extends SakaiUiTestBase {
         String adminSiteUrl = portalUri.resolve("/portal/site/!admin").toString();
         page.navigate(configuredSiteUrl);
 
+        sakai.waitForPortalFocus();
         Locator roleSwitcher = page.locator("#roleSwitch");
         assertThat(roleSwitcher).isVisible();
 
         Locator roleSelect = roleSwitcher.locator("#roleSwitchSelect");
-        if (roleSelect.count() > 0 && roleSelect.isVisible()) {
-            roleSelect.selectOption(new SelectOption().setIndex(1));
-        } else {
-            roleSwitcher.locator("#roleSwitchAnchor").click();
-        }
-        page.waitForLoadState();
+        page.waitForNavigation(() -> {
+            if (roleSelect.count() > 0 && roleSelect.isVisible()) {
+                roleSelect.selectOption(new SelectOption().setIndex(1));
+            } else {
+                roleSwitcher.locator("#roleSwitchAnchor").click();
+            }
+        });
 
         assertThat(page.locator("#roleSwitchAnchor.Mrphs-roleSwitch__exit")).isVisible();
 
@@ -68,8 +71,7 @@ class ViewSiteAsTest extends SakaiUiTestBase {
                 .setName(Pattern.compile("^Site Unavailable$", Pattern.CASE_INSENSITIVE))).first()).isVisible();
 
         page.navigate(configuredSiteUrl);
-        page.locator("#roleSwitchAnchor.Mrphs-roleSwitch__exit").click();
-        page.waitForLoadState();
+        page.waitForNavigation(() -> page.locator("#roleSwitchAnchor.Mrphs-roleSwitch__exit").click());
 
         page.navigate(adminSiteUrl);
         assertThat(page.getByRole(AriaRole.LINK,

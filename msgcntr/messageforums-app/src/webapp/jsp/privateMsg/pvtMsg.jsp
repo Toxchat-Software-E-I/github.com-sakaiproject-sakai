@@ -1,5 +1,5 @@
-<%@ page import="java.util.*, javax.faces.context.*, javax.faces.application.*,
-                 javax.faces.el.*, org.sakaiproject.tool.messageforums.*,
+<%@ page import="java.util.*, jakarta.faces.context.*, jakarta.faces.application.*,
+                 jakarta.faces.el.*, org.sakaiproject.tool.messageforums.*,
                  org.sakaiproject.tool.messageforums.ui.*"%>
 <%@ taglib uri="http://java.sun.com/jsf/html" prefix="h" %>
 <%@ taglib uri="http://java.sun.com/jsf/core" prefix="f" %>
@@ -52,6 +52,8 @@
             if (messagesTable?.querySelector('tbody td:not(:empty)')) {
                 new DataTable(messagesTable, {
                     "paging": false,
+                    // the search box above the table filters it, see setupMessagesSearch
+                    "layout": {"topEnd": null},
                     "info": false,
                     "order": [[4, "desc"]],
                     "columns": [
@@ -89,6 +91,8 @@
             if (threadedMessagesTable?.querySelector('tbody td:not(:empty)')) {
                 new DataTable(threadedMessagesTable, {
                     "paging": false,
+                    // the search box above the table filters it, see setupMessagesSearch
+                    "layout": {"topEnd": null},
                     "order": [[4, "desc"]],
                     "info": false,
                     "columns": [
@@ -250,11 +254,10 @@
 		  </h:column>
 		</h:dataTable>
 	  </h:panelGroup>
-	  <h:panelGroup layout="block" styleClass="table">
+	  <h:panelGroup layout="block" styleClass="table" rendered="#{PrivateMessagesTool.threadedView}">
 	  <mf:hierPvtMsgDataTable styleClass="table table-hover table-striped table-bordered" id="threaded_pvtmsgs" width="100%" 
 	                          value="#{PrivateMessagesTool.decoratedPvtMsgs}" 
 	  	                        var="rcvdItems" 
-	  	                        rendered="#{PrivateMessagesTool.selectView == 'threaded'}"
 								 columnClasses="#{PrivateMessagesTool.calculateColumnClass()}">
 		 	<h:column>
 		    <f:facet name="header">

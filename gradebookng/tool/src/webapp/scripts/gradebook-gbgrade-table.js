@@ -1027,6 +1027,13 @@ GbGradeTable.renderTable = function (elementId, tableData) {
     });
   });
 
+  // Ignore the transient top-left range Tabulator fires on mousedown before the pressed cell
+  let pressedCell = null;
+  GbGradeTable.instance.on("cellMouseDown", (event, cell) => {
+    pressedCell = cell.getElement();
+    queueMicrotask(() => pressedCell = null);
+  });
+
    GbGradeTable.instance.on("rangeChanged", function (range) {
     const colIndex = range._range.end.col;
     const rowIndex = range._range.end.row;
@@ -1036,6 +1043,7 @@ GbGradeTable.renderTable = function (elementId, tableData) {
     if (!cell) return;
 
     const cellElement = cell.getElement();
+    if (pressedCell && cellElement !== pressedCell) return;
 
     
     const tableContainer = document.querySelector('.tabulator-tableholder');
@@ -1170,7 +1178,7 @@ GbGradeTable.renderTable = function (elementId, tableData) {
   let filterTimeout;
   let previousFilterText = "";
   $("#studentFilterInput")
-    .on("keyup", function (event) {
+    .on("input", function (event) {
       clearTimeout(filterTimeout);
       filterTimeout = setTimeout(function () {
         let currentFilterText = event.target.value;
@@ -1186,19 +1194,13 @@ GbGradeTable.renderTable = function (elementId, tableData) {
     .on("keydown", function (event) {
       if (event.key === "Enter") {
         clearTimeout(filterTimeout);
+        // remember what is now applied, so emptying the field afterwards still redraws
+        previousFilterText = event.target.value;
         GbGradeTable.redrawRows();
         return false;
       }
     });
   
-  // Clear Student Filter
-  $(document).on("click", ".gb-student-filter-clear-button", function (event) {
-    event.preventDefault();
-    const $input = $("#studentFilterInput");
-    if ($input.val().length > 0) {
-      $input.val("").trigger("keyup");
-    }
-  });
   
   rubricGradingRow = 0;
   rubricGradingCol = 0;
@@ -2461,6 +2463,10 @@ GbGradeTable.isBoundaryCell = function(rowIndex, colIndex) {
   return colIndex === 0 || colIndex === totalColumns - 1;
 };
 
+/**
+ * Set up grade-table navigation and score editing. Native summary links handle
+ * Enter themselves; cell actions use the selected range and available menus.
+ */
 GbGradeTable.setupKeyboardNavigation = function() {
 
   $(GbGradeTable.domElement).on("keydown", function(event) {
@@ -2488,6 +2494,11 @@ GbGradeTable.setupKeyboardNavigation = function() {
     const current = document.querySelector("#gradeTableWrapper .tabulator-cell.tabulator-range-only-cell-selected");
     const focus = document.activeElement;
 
+    // Focused summary links must activate themselves, not edit the selected score cell.
+    if (event.key === "Enter" && event.target.closest(".gb-view-grade-summary")) {
+      return;
+    }
+
     if (event.key === "Escape") {
       focus.blur();
       current.focus();
@@ -2498,7 +2509,11 @@ GbGradeTable.setupKeyboardNavigation = function() {
       // Handle Enter key for non-editable cells with links
       if (!current.classList.contains("tabulator-editable") && event.key === "Enter") {
         const link = current.querySelector("a, link");
-        if (link) link.click();
+        if (link) {
+          iGotThis();
+          link.click();
+          return;
+        }
       }
       
       // Allow accessibility shortcuts
@@ -2514,7 +2529,10 @@ GbGradeTable.setupKeyboardNavigation = function() {
       if (GbGradeTable.isBoundaryCell(rowIndex, colIndex)) {
         if (!inBoundaryCell) {
           inBoundaryCell = true;
-          return;
+          // Only skip navigation on entry; grade editing must handle the first key.
+          if (["Tab", "ArrowRight", "ArrowLeft"].includes(event.key)) {
+            return;
+          }
         }
   
         if ((event.key === "Tab" || event.key === "ArrowRight") && colIndex === totalColumns - 1) {
@@ -2539,16 +2557,16 @@ GbGradeTable.setupKeyboardNavigation = function() {
 
       // Space - open menu
       if (!editing && event.keyCode == 32) {
-        iGotThis();
-
         // Ctrl+Space to open the header menu
         const dropdownToggle = event.ctrlKey 
           ? document.querySelector("#gradeTableWrapper .tabulator-col.tabulator-range-highlight .dropdown-toggle")
           : current.querySelector(".dropdown-toggle");
 
-        dropdownToggle.addEventListener("shown.bs.dropdown", GbGradeTable.dropdownShownHandler);
-
-        bootstrap.Dropdown.getOrCreateInstance(dropdownToggle).toggle();
+        if (dropdownToggle) {
+          iGotThis();
+          dropdownToggle.addEventListener("shown.bs.dropdown", GbGradeTable.dropdownShownHandler);
+          bootstrap.Dropdown.getOrCreateInstance(dropdownToggle).toggle();
+        }
       }
       // Handle input and navigation
       if (!editing && (/^[0-9]$/.test(event.key) || event.key === "Enter")) {
@@ -2604,13 +2622,6 @@ GbGradeTable.setupKeyboardNavigation = function() {
        GbGradeTable.instance.getRanges().forEach(range => range.remove());
       }
 
-      if (event.keyCode == 13) {
-        const gradeSummary = current.querySelector('.gb-view-grade-summary');
-        if (gradeSummary) {
-          iGotThis();
-          gradeSummary.click();
-        }
-      }
     }
   });
 };
@@ -2760,10 +2771,23 @@ GbGradeTable.setupCellMetaDataSummary = function() {
       $metadata.find(".gb-metadata-notifications li.gb-metadata-comment-notification").hide();
     }
 
-    $metadata.css({
+    $metadata.removeClass("gb-metadata-above").css({
       top: topOffset,
+      bottom: "",
       left: leftOffset
     }).toggle();
+
+    // Flip above the cell when clipped below, anchored by bottom so a late-loading comment grows upwards
+    const outerWrapper = $metadata.closest(".gradeTableOuterWrapper")[0];
+    if (outerWrapper && $metadata.is(":visible")) {
+      const visibleBottom = outerWrapper.getBoundingClientRect().top + outerWrapper.clientHeight;
+      if ($cell[0].getBoundingClientRect().bottom + $metadata.outerHeight() > visibleBottom) {
+        $metadata.addClass("gb-metadata-above").css({
+          top: "auto",
+          bottom: $("#gradeTableWrapper").innerHeight() - (cellOffset.top - wrapperOffset.top) + 5
+        });
+      }
+    }
   }
 
   // on mouse click on notification, toggle metadata summary
